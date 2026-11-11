@@ -395,7 +395,8 @@ float3 SnowWind(float T)
                         0.25 * T + 9.6 * sin(T * 0.0325 + 2.1) + 5.4 * sin(T * 0.1025 + 0.7) + 2.4 * sin(T * 0.2425 + 2.9));
 }
 static const float SnowBandFrom[7] = {1.5, 6.0, 15.0, 30.0, 55.0, 95.0, 160.0};   // the bands of distance
-static const float SnowBandCell[6] = {0.8, 1.4, 2.4, 4.0, 6.5, 10.0};             // and their cells' side
+static const float SnowBandCell[6] = {0.8, 1.4, 1.9, 3.2, 5.2, 7.9};              // and their cells' side (from the heroes out
+                                                                                   // smaller cells: twice the flakes again, 2026-11-12)
 static const float SnowBandMore[6] = {1.0, 1.0, 2.0, 2.0, 2.0, 2.0};               // from the heroes out (~15): twice the flakes
 float3 Snow(float3 c, float2 uv, int eye, float ok, float3 p)
 {
