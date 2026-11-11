@@ -372,6 +372,10 @@ struct Settings {
     // fire_logs_radius / fire_logs_height: a ray passing this near the burning logs, from their foot to this
     // high over it, picks the fire too (world units)
     std::atomic<float> campfireLogsRadius{0.0f}, campfireLogsHeight{1.5f};
+    // snow / snow_chance / snow_density: snow falling round the scene (the shader's Snow), rolled each time the
+    // scene begins: it snows with this chance; the share of the flakes' cells that hold one
+    std::atomic<bool>  campfireSnow{true};
+    std::atomic<float> campfireSnowChance{1.0f}, campfireSnowDensity{0.35f};
     std::atomic<bool>  campfirePano{false};      // [campfire] panorama: one picture round the scene (pano_file), in the void
     std::atomic<float> campfirePanoYaw{0.0f}, campfirePanoLow{-90.0f}, campfirePanoHigh{90.0f}, campfirePanoBright{1.0f};   // [campfire] pano_yaw/low/high/brightness
     std::atomic<float> campfireMenuTop{0.78f};  // [campfire] menu_top: where the strip begins, a share of the game's menu band from its top
@@ -1544,6 +1548,9 @@ void LoadSettings() {
         g_set.campfirePano.store(IniB(L"campfire", L"panorama", false));
         g_set.campfireFireSound.store(IniB(L"campfire", L"fire_sound", true));
         g_set.campfireSparks.store(IniB(L"campfire", L"sparks", true));
+        g_set.campfireSnow.store(IniB(L"campfire", L"snow", true));
+        g_set.campfireSnowChance.store(std::clamp(IniF(L"campfire", L"snow_chance", 1.0f), 0.0f, 1.0f));
+        g_set.campfireSnowDensity.store(std::clamp(IniF(L"campfire", L"snow_density", 0.35f), 0.0f, 1.0f));
         g_set.campfireFireVolume.store(std::clamp(IniF(L"campfire", L"fire_volume", 0.9f), 0.0f, 4.0f));
         g_set.campfireFireBurst.store(std::clamp(IniF(L"campfire", L"fire_burst_volume", 2.0f), 0.0f, 6.0f));
         g_set.campfireFireX.store(IniF(L"campfire", L"fire_x", 1060.67f));
@@ -12106,6 +12113,36 @@ void OnBeginEffects(reshade::api::effect_runtime* rt, reshade::api::command_list
             SetFloats(rt, "SparkPos", pos, 3);
             SetFloat(rt, "SparkTime", float(now - at) * 0.001f);
             SetFloat(rt, "SparkSeed", float(at % 997));
+        }
+    }
+    {   // The campfire's snow (Snow): rolled as the scene begins ([campfire] snow_chance), falling while it stays.
+        static bool was = false, snowing = false;
+        static ULONGLONG since = 0;
+        const bool scene = g_campfire.load();
+        if (scene && !was) {
+            since = GetTickCount64();
+            const float roll = float((since * 2654435761ull >> 7) % 10000) / 10000.0f;
+            snowing = g_set.campfireSnow.load() && roll < g_set.campfireSnowChance.load();
+            LogF("vrcam: campfire - snow %s (roll %.2f, chance %.2f)", snowing ? "falls" : "not this time", roll, g_set.campfireSnowChance.load());
+        }
+        was = scene;
+        SkyView sv[2];
+        AcquireSRWLockShared(&g_skyLock); sv[0] = g_skyView[0]; sv[1] = g_skyView[1]; ReleaseSRWLockShared(&g_skyLock);
+        const bool on = scene && snowing && g_set.campfireSnow.load() && sv[0].proj_ok && sv[0].axes_ok;
+        SetBool(rt, "SnowOn", on);
+        if (on) {
+            for (int e = 0; e < 2; ++e) {
+                const SkyView& s = sv[e].axes_ok && sv[e].proj_ok ? sv[e] : sv[0];
+                char n[16];
+                snprintf(n, sizeof n, "OutlineEye%d", e); SetFloats(rt, n, s.eyeRel, 3);
+                snprintf(n, sizeof n, "SkyProj%d", e); SetFloats(rt, n, s.proj, 4);
+                snprintf(n, sizeof n, "CamRight%d", e); SetFloats(rt, n, s.axes, 3);
+                snprintf(n, sizeof n, "CamUp%d", e); SetFloats(rt, n, s.axes + 3, 3);
+                snprintf(n, sizeof n, "CamBack%d", e); SetFloats(rt, n, s.axes + 6, 3);
+            }
+            SetFloat(rt, "SnowTime", float((GetTickCount64() - since) % 600000) * 0.001f);
+            SetFloat(rt, "SnowDensity", g_set.campfireSnowDensity.load());
+            SetFloat(rt, "SnowSeed", float(since % 997));
         }
     }
 #ifdef D2RVR_NATIVE_OPENXR

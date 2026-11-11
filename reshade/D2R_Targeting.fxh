@@ -374,14 +374,64 @@ float3 Sparks(float3 c, float2 uv, int eye, float ok, float3 p)
     }
     return c + glow;
 }
+// The campfire's snow (vrcam: [campfire] snow, rolled each time the scene begins): flakes falling straight
+// down all round the player. They lie on vertical cylinders round the point between the eyes (one per layer,
+// 1.2 to ~40 world units out), each in a grid of cells on its surface that slides down with the time: the
+// same 3D point for both eyes, so the flakes stand in depth; hidden by whatever stands nearer (the depth).
+uniform bool SnowOn < hidden = true; > = false;
+uniform float SnowTime < hidden = true; > = 0.0;
+uniform float SnowDensity < hidden = true; > = 0.35;   // share of the cells that hold a flake
+uniform float SnowSeed < hidden = true; > = 0.0;
+#define SNOW_LAYERS 11
+float SnowHash(float2 q) { return frac(sin(dot(q, float2(127.1, 311.7)) + SnowSeed * 17.31) * 43758.5453); }
+float3 Snow(float3 c, float2 uv, int eye, float ok, float3 p)
+{
+    const float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+    const float4 sp = eye == 0 ? SkyProj0 : SkyProj1;
+    const float3 v = float3((ndc.x + sp.z) / sp.x, (ndc.y + sp.w) / sp.y, -1.0);
+    const float3 off = eye == 0 ? v.x * CamRight0 + v.y * CamUp0 + v.z * CamBack0
+                                : v.x * CamRight1 + v.y * CamUp1 + v.z * CamBack1;
+    const float3 e = eye == 0 ? OutlineEye0 : OutlineEye1;
+    const float3 dir = normalize(off);
+    const float scene = ok > 0.0 ? length(p - e) : 1e9;
+    const float3 C = (OutlineEye0 + OutlineEye1) * 0.5;
+    const float2 o = (e - C).xz, dx = dir.xz;
+    const float a = dot(dx, dx);
+    if (a < 1e-5) return c;   // straight up or down: no cylinder wall ahead
+    const float b = dot(o, dx), o2 = dot(o, o);
+    float cover = 0.0;
+    [loop] for (int k = 0; k < SNOW_LAYERS; ++k) {
+        const float r = 1.2 * pow(1.38, float(k));
+        const float disc = b * b - a * (o2 - r * r);
+        if (disc <= 0.0) continue;
+        const float t = (-b + sqrt(disc)) / a;
+        if (t <= 0.0 || t > scene) continue;   // behind something
+        const float3 q = e + dir * t - C;
+        const float cs = 0.35 + 0.09 * r;   // a cell's side, world units: the flakes as dense on the screen far and near
+        const float n = max(1.0, floor(6.2831853 * r / cs));
+        const float fall = 3.0 + 0.4 * frac(float(k) * 0.618);   // world units a second (~0.75 m)
+        const float2 g = float2((atan2(q.z, q.x) / 6.2831853 + 0.5) * n, (q.y + SnowTime * fall) / cs);
+        const float2 cell = floor(g) + float(k) * 41.7;
+        const float h = SnowHash(cell);
+        if (h > SnowDensity) continue;
+        float2 at = float2(0.2 + 0.6 * SnowHash(cell + 5.3), 0.2 + 0.6 * SnowHash(cell + 9.1));
+        at.x += 0.15 * sin(SnowTime * 0.9 + h * 61.0);   // a slow sway
+        const float d = length(frac(g) - at) * cs;
+        const float size = 0.035 + 0.0025 * t;
+        const float fadeIn = saturate((t - 0.6) / 1.5);   // the nearest flakes fainter: not a blot over the eye
+        cover = max(cover, smoothstep(size, size * 0.35, d) * (0.6 + 0.4 * SnowHash(cell + 2.7)) * fadeIn);
+    }
+    return lerp(c, float3(0.8, 0.83, 0.9), cover * 0.85);
+}
 float3 Outline(float2 uv, int eye)
 {
     float3 c = tex2D(FogColorSmp, uv).rgb;
-    if (!OutlineOn && !RingOn && !BeamOn && !TeleOn && !SparkOn) return c;
+    if (!OutlineOn && !RingOn && !BeamOn && !TeleOn && !SparkOn && !SnowOn) return c;
     float ok;
     const float3 p = OutlineWorld(uv, eye, ok);
     if (BeamOn) c = Beams(c, uv, eye, p, ok);   // over the sky as well
     if (SparkOn) c = Sparks(c, uv, eye, ok, p);   // over the sky as well
+    if (SnowOn) c = Snow(c, uv, eye, ok, p);   // over the sky as well
     if (TeleOn) c = TelePillar(c, uv, eye, p, ok);
     if (ok <= 0.0) return c;
     if (RingOn) {
