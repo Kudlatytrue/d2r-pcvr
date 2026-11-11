@@ -374,16 +374,27 @@ float3 Sparks(float3 c, float2 uv, int eye, float ok, float3 p)
     }
     return c + glow;
 }
-// The campfire's snow (vrcam: [campfire] snow, rolled each time the scene begins): flakes falling straight
-// down all round the player. They lie on vertical cylinders round the point between the eyes (one per layer,
-// 2 to 154 world units out, evenly spaced), each in a grid of cells on its surface that slides down with the time: the
-// same 3D point for both eyes, so the flakes stand in depth; hidden by whatever stands nearer (the depth).
+// The campfire's snow (vrcam: [campfire] snow, rolled each time the scene begins): flakes falling all round
+// the player, carried by an uneven wind. The flakes hang in a 3D grid of cells fixed in the world (relative to
+// the hero, so the same for both eyes and in depth), one at a random place in some cells; the grid slides with
+// the wind, each column of cells falls at its own speed, each flake sways in its own way. The pixel's ray is
+// walked through six bands of distance (1.5 to 160 world units), each with its own cell size (bigger far off,
+// so the flakes are as thick on the screen far and near), and hidden by whatever stands nearer (the depth).
 uniform bool SnowOn < hidden = true; > = false;
 uniform float SnowTime < hidden = true; > = 0.0;
 uniform float SnowDensity < hidden = true; > = 0.35;   // share of the cells that hold a flake
 uniform float SnowSeed < hidden = true; > = 0.0;
-#define SNOW_LAYERS 20
 float SnowHash(float2 q) { return frac(sin(dot(q, float2(127.1, 311.7)) + SnowSeed * 17.31) * 43758.5453); }
+float SnowHash3(float3 q) { return frac(sin(dot(q, float3(127.1, 311.7, 74.7)) + SnowSeed * 17.31) * 43758.5453); }
+// The wind's push so far (world units): a slow drift with gusts that come and go, never repeating to the eye.
+float3 SnowWind(float T)
+{
+    return float3(0.7 * T + 2.2 * sin(T * 0.19) + 1.1 * sin(T * 0.47 + 1.3) + 0.5 * sin(T * 1.13 + 0.4),
+                  0.0,
+                  0.25 * T + 1.6 * sin(T * 0.13 + 2.1) + 0.9 * sin(T * 0.41 + 0.7) + 0.4 * sin(T * 0.97 + 2.9));
+}
+static const float SnowBandFrom[7] = {1.5, 6.0, 15.0, 30.0, 55.0, 95.0, 160.0};   // the bands of distance
+static const float SnowBandCell[6] = {0.8, 1.4, 2.4, 4.0, 6.5, 10.0};             // and their cells' side
 float3 Snow(float3 c, float2 uv, int eye, float ok, float3 p)
 {
     const float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
@@ -394,41 +405,40 @@ float3 Snow(float3 c, float2 uv, int eye, float ok, float3 p)
     const float3 e = eye == 0 ? OutlineEye0 : OutlineEye1;
     const float3 dir = normalize(off);
     const float scene = ok > 0.0 ? length(p - e) : 1e9;
-    const float3 C = (OutlineEye0 + OutlineEye1) * 0.5;
-    const float2 o = (e - C).xz, dx = dir.xz;
-    const float a = dot(dx, dx);
-    if (a < 1e-5) return c;   // straight up or down: no cylinder wall ahead
-    const float b = dot(o, dx), o2 = dot(o, o);
+    const float T = SnowTime;
+    const float3 W = SnowWind(T);
     float cover = 0.0;
-    [loop] for (int k = 0; k < SNOW_LAYERS; ++k) {
-        const float r = 2.0 + 8.0 * float(k);   // 2 .. 154, evenly: as much snow far off as near, past the walls
-        const float disc = b * b - a * (o2 - r * r);
-        if (disc <= 0.0) continue;
-        const float t = (-b + sqrt(disc)) / a;
-        if (t <= 0.0 || t > scene) continue;   // behind something
-        const float3 q = e + dir * t - C;
-        const float cs = 0.35 + 0.09 * r;   // a cell's side, world units: the flakes as dense on the screen far and near
-        const float n = max(1.0, floor(6.2831853 * r / cs));
-        // each column of cells its own speed and start: no two neighbours fall together
-        const float gx = (atan2(q.z, q.x) / 6.2831853 + 0.5) * n;
-        const float col = floor(gx);
-        const float colKey = col + float(k) * 113.0;
-        const float fall = 3.0 * (0.55 + 0.9 * SnowHash(float2(colKey, 3.1)));   // world units a second, ~0.4-1.0 m
-        const float2 g = float2(gx, (q.y + SnowTime * fall) / cs + SnowHash(float2(colKey, 8.3)) * 50.0);
-        const float2 cell = floor(g) + float(k) * 41.7;
-        const float h = SnowHash(cell);
-        if (h > SnowDensity) continue;
-        // each flake its own sway: how far, how fast, from where, and a little bob up and down
-        const float amp = 0.06 + 0.16 * SnowHash(cell + 13.7);
-        const float freq = 0.5 + 1.3 * SnowHash(cell + 17.9);
-        const float ph = SnowHash(cell + 21.3) * 6.2831853;
-        float2 at = float2(0.5 + 0.24 * (SnowHash(cell + 5.3) - 0.5) + amp * sin(SnowTime * freq + ph),   // not in a line
-                           0.25 + 0.5 * SnowHash(cell + 9.1) + 0.08 * sin(SnowTime * freq * 0.7 + ph * 1.9));
-        const float d = length(frac(g) - at) * cs;
-        // each flake its own size, all half what they were at most
-        const float size = max(0.0175 + 0.001 * t, 0.00175 * t) * (0.35 + 0.65 * SnowHash(cell + 27.1));
-        const float fadeIn = saturate((t - 0.6) / 1.5);   // the nearest flakes fainter: not a blot over the eye
-        cover = max(cover, smoothstep(size, size * 0.35, d) * (0.6 + 0.4 * SnowHash(cell + 2.7)) * fadeIn);
+    [loop] for (int b = 0; b < 6; ++b) {
+        const float cs = SnowBandCell[b];
+        const float tEnd = min(SnowBandFrom[b + 1], scene);
+        [loop] for (float t = SnowBandFrom[b]; t < tEnd; t += cs * 0.6) {
+            const float3 P = e + dir * t;
+            // the flakes' frame: carried by the wind, gusts reaching places a little apart at different times
+            float3 Q = P - W - float3(0.6 * sin(P.z * 0.031 + T * 0.37), 0.0, 0.6 * sin(P.x * 0.027 + T * 0.29));
+            const float2 colCell = floor(Q.xz / cs) + float(b) * 57.0;
+            const float fall = 3.0 * (0.55 + 0.9 * SnowHash(colCell));   // world units a second, ~0.4-1.0 m
+            const float lift = T * fall + SnowHash(colCell + 4.7) * 40.0 * cs;
+            Q.y += lift;
+            const float3 cell = floor(Q / cs);
+            const float3 key = cell + float(b) * 91.0;
+            const float h = SnowHash3(key);
+            if (h > SnowDensity) continue;
+            // the flake's place in its cell, and its own sway and bob
+            const float amp = 0.05 + 0.13 * SnowHash3(key + 13.7);
+            const float freq = 0.5 + 1.4 * SnowHash3(key + 17.9);
+            const float ph = SnowHash3(key + 21.3) * 6.2831853;
+            const float3 at = float3(0.3 + 0.4 * SnowHash3(key + 5.3) + amp * sin(T * freq + ph),
+                                     0.3 + 0.4 * SnowHash3(key + 9.1) + 0.06 * sin(T * freq * 0.7 + ph * 1.9),
+                                     0.3 + 0.4 * SnowHash3(key + 11.9) + amp * cos(T * freq * 0.83 + ph));
+            // back to the world: where the ray passes nearest it
+            const float3 F = (cell + at) * cs + (P - Q);
+            const float s = dot(F - e, dir);
+            if (s <= 0.0 || s > scene) continue;   // behind the eye, or behind something
+            const float d = length(F - e - dir * s);
+            const float size = max(0.0175 + 0.001 * s, 0.00175 * s) * (0.35 + 0.65 * SnowHash3(key + 27.1));
+            const float fadeIn = saturate((s - 0.6) / 1.5);   // the nearest flakes fainter: not a blot over the eye
+            cover = max(cover, smoothstep(size, size * 0.35, d) * (0.6 + 0.4 * SnowHash3(key + 2.7)) * fadeIn);
+        }
     }
     return lerp(c, float3(0.8, 0.83, 0.9), cover * 0.85);
 }
