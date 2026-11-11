@@ -389,12 +389,13 @@ float SnowHash3(float3 q) { return frac(sin(dot(q, float3(127.1, 311.7, 74.7)) +
 // The wind's push so far (world units): a slow drift with gusts that come and go, never repeating to the eye.
 float3 SnowWind(float T)
 {
-    return float3(0.7 * T + 2.2 * sin(T * 0.19) + 1.1 * sin(T * 0.47 + 1.3) + 0.5 * sin(T * 1.13 + 0.4),
-                  0.0,
-                  0.25 * T + 1.6 * sin(T * 0.13 + 2.1) + 0.9 * sin(T * 0.41 + 0.7) + 0.4 * sin(T * 0.97 + 2.9));
+    return 1.6 * float3(0.7 * T + 2.2 * sin(T * 0.19) + 1.1 * sin(T * 0.47 + 1.3) + 0.5 * sin(T * 1.13 + 0.4),
+                        0.0,
+                        0.25 * T + 1.6 * sin(T * 0.13 + 2.1) + 0.9 * sin(T * 0.41 + 0.7) + 0.4 * sin(T * 0.97 + 2.9));
 }
 static const float SnowBandFrom[7] = {1.5, 6.0, 15.0, 30.0, 55.0, 95.0, 160.0};   // the bands of distance
 static const float SnowBandCell[6] = {0.8, 1.4, 2.4, 4.0, 6.5, 10.0};             // and their cells' side
+static const float SnowBandMore[6] = {1.0, 1.0, 2.0, 2.0, 2.0, 2.0};               // from the heroes out (~15): twice the flakes
 float3 Snow(float3 c, float2 uv, int eye, float ok, float3 p)
 {
     const float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
@@ -422,7 +423,7 @@ float3 Snow(float3 c, float2 uv, int eye, float ok, float3 p)
             const float3 cell = floor(Q / cs);
             const float3 key = cell + float(b) * 91.0;
             const float h = SnowHash3(key);
-            if (h > SnowDensity) continue;
+            if (h > SnowDensity * SnowBandMore[b]) continue;
             // the flake's place in its cell, and its own sway and bob
             const float amp = 0.05 + 0.13 * SnowHash3(key + 13.7);
             const float freq = 0.5 + 1.4 * SnowHash3(key + 17.9);
@@ -435,7 +436,7 @@ float3 Snow(float3 c, float2 uv, int eye, float ok, float3 p)
             const float s = dot(F - e, dir);
             if (s <= 0.0 || s > scene) continue;   // behind the eye, or behind something
             const float d = length(F - e - dir * s);
-            const float size = max(0.0175 + 0.001 * s, 0.00175 * s) * (0.35 + 0.65 * SnowHash3(key + 27.1));
+            const float size = max(0.0175 + 0.001 * s, 0.00175 * s) * (0.1 + 0.9 * SnowHash3(key + 27.1));   // 10% to 100%
             const float fadeIn = saturate((s - 0.6) / 1.5);   // the nearest flakes fainter: not a blot over the eye
             cover = max(cover, smoothstep(size, size * 0.35, d) * (0.6 + 0.4 * SnowHash3(key + 2.7)) * fadeIn);
         }
