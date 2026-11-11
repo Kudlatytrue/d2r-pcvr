@@ -409,15 +409,24 @@ float3 Snow(float3 c, float2 uv, int eye, float ok, float3 p)
         const float3 q = e + dir * t - C;
         const float cs = 0.35 + 0.09 * r;   // a cell's side, world units: the flakes as dense on the screen far and near
         const float n = max(1.0, floor(6.2831853 * r / cs));
-        const float fall = 3.0 + 0.4 * frac(float(k) * 0.618);   // world units a second (~0.75 m)
-        const float2 g = float2((atan2(q.z, q.x) / 6.2831853 + 0.5) * n, (q.y + SnowTime * fall) / cs);
+        // each column of cells its own speed and start: no two neighbours fall together
+        const float gx = (atan2(q.z, q.x) / 6.2831853 + 0.5) * n;
+        const float col = floor(gx);
+        const float colKey = col + float(k) * 113.0;
+        const float fall = 3.0 * (0.55 + 0.9 * SnowHash(float2(colKey, 3.1)));   // world units a second, ~0.4-1.0 m
+        const float2 g = float2(gx, (q.y + SnowTime * fall) / cs + SnowHash(float2(colKey, 8.3)) * 50.0);
         const float2 cell = floor(g) + float(k) * 41.7;
         const float h = SnowHash(cell);
         if (h > SnowDensity) continue;
-        float2 at = float2(0.2 + 0.6 * SnowHash(cell + 5.3), 0.2 + 0.6 * SnowHash(cell + 9.1));
-        at.x += 0.15 * sin(SnowTime * 0.9 + h * 61.0);   // a slow sway
+        // each flake its own sway: how far, how fast, from where, and a little bob up and down
+        const float amp = 0.06 + 0.16 * SnowHash(cell + 13.7);
+        const float freq = 0.5 + 1.3 * SnowHash(cell + 17.9);
+        const float ph = SnowHash(cell + 21.3) * 6.2831853;
+        float2 at = float2(0.5 + 0.24 * (SnowHash(cell + 5.3) - 0.5) + amp * sin(SnowTime * freq + ph),   // not in a line
+                           0.25 + 0.5 * SnowHash(cell + 9.1) + 0.08 * sin(SnowTime * freq * 0.7 + ph * 1.9));
         const float d = length(frac(g) - at) * cs;
-        const float size = max(0.035 + 0.002 * t, 0.0035 * t);   // far ones a few pixels still
+        // each flake its own size, all half what they were at most
+        const float size = max(0.0175 + 0.001 * t, 0.00175 * t) * (0.35 + 0.65 * SnowHash(cell + 27.1));
         const float fadeIn = saturate((t - 0.6) / 1.5);   // the nearest flakes fainter: not a blot over the eye
         cover = max(cover, smoothstep(size, size * 0.35, d) * (0.6 + 0.4 * SnowHash(cell + 2.7)) * fadeIn);
     }
