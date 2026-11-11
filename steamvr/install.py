@@ -622,13 +622,13 @@ def main():
         payload.update({mod_identity.MOD_DIR / name: data for name, data in ceilings.items()})
         print('Prepared the dungeon ceilings the game draws, from your installed game.')
     try:
-        campfire = prepare_campfire_sky.prepare(game, casclib=args.casclib)
+        campfire = prepare_campfire_sky.prepare_tuned(game, casclib=args.casclib)
         prepare_campfire_sky.check_existing(game / mod_identity.MOD_DIR, campfire)
     except (OSError, ValueError, KeyError, IndexError) as error:
         print(f'Character creation clouds fix unavailable; existing preset retained: {error}')
     else:
         payload.update({mod_identity.MOD_DIR / name: data for name, data in campfire.items()})
-        print('Prepared character creation preset (removed screen-fixed clouds) from your installed game.')
+        print('Prepared the campfire scene for character creation from your installed game.')
     require_game_closed()
     check_launcher_icon(game, payload[mod_identity.MOD_DIR / 'launcher_icon.png'])
     snapshot = args.backup_dir / datetime.now().strftime('%Y%m%d-%H%M%S-%f')

@@ -130,5 +130,44 @@ class CampfireSkyTest(unittest.TestCase):
         self.assertEqual(more, 1)   # the scene's own sky is the one copied, never a copy
 
 
+class TunedSceneTest(unittest.TestCase):
+    """The scene tuned on a headset is what a full install prepares (install.py: prepare_tuned)."""
+    def tearDown(self):
+        campfire.configure(campfire.arguments(['game']))
+
+    def test_tuned_flags_set_the_scene(self):
+        kwargs = campfire.configure(campfire.arguments(['game', '--tuned']))
+        self.assertTrue(campfire.PAVE)
+        self.assertTrue(campfire.FLIP_FAR)
+        self.assertEqual(campfire.FAR_SHIFT, -20.0)
+        self.assertGreater(len(campfire.COPIES), 100)
+        self.assertIn('wall_corner01_02_pcvr_behind', campfire.HIDE)
+        self.assertEqual(kwargs['sky_turns'], ())
+        self.assertFalse(kwargs['flip_wall'])
+        self.assertFalse(kwargs['shadows_off'])
+        self.assertIn('ui_skybox_characterSelect_sky', kwargs['drop'])
+
+    def test_plain_flags_leave_nothing_of_a_tuned_run(self):
+        campfire.configure(campfire.arguments(['game', '--tuned']))
+        kwargs = campfire.configure(campfire.arguments(['game']))
+        self.assertFalse(campfire.PAVE)
+        self.assertEqual(campfire.COPIES, ())
+        self.assertEqual(campfire.HIDE, ())
+        self.assertEqual(campfire.FAR_SHIFT, 0.0)
+        self.assertEqual(kwargs['sky_turns'], campfire.SKY_TURNS)
+
+    def test_a_flag_given_replaces_the_tuned_one_wherever_it_stands(self):
+        for argv in (['game', '--tuned', '--far-wall-shift', '5'], ['--far-wall-shift', '5', '--tuned', 'game']):
+            args = campfire.arguments(argv)
+            self.assertEqual(str(args.game), 'game')
+            self.assertEqual(args.far_wall_shift, 5.0)
+            self.assertTrue(args.pave)
+
+    def test_dev_script_builds_the_same_scene(self):
+        script = (Path(__file__).with_name('campfire_scene.ps1')).read_text(encoding='utf-8')
+        self.assertIn('--tuned', script)
+        self.assertNotIn('--copy', script)
+
+
 if __name__ == '__main__':
     unittest.main()
