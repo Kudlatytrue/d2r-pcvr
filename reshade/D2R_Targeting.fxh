@@ -389,9 +389,10 @@ float SnowHash3(float3 q) { return frac(sin(dot(q, float3(127.1, 311.7, 74.7)) +
 // The wind's push so far (world units): a slow drift with gusts that come and go, never repeating to the eye.
 float3 SnowWind(float T)
 {
-    return 1.6 * float3(0.7 * T + 2.2 * sin(T * 0.19) + 1.1 * sin(T * 0.47 + 1.3) + 0.5 * sin(T * 1.13 + 0.4),
+    // gusts four times as long as before (owner 2026-11-12: a turn every 5-6 s, not every 1-1.5 s) and stronger
+    return 1.6 * float3(0.7 * T + 13.2 * sin(T * 0.0475) + 6.6 * sin(T * 0.1175 + 1.3) + 3.0 * sin(T * 0.2825 + 0.4),
                         0.0,
-                        0.25 * T + 1.6 * sin(T * 0.13 + 2.1) + 0.9 * sin(T * 0.41 + 0.7) + 0.4 * sin(T * 0.97 + 2.9));
+                        0.25 * T + 9.6 * sin(T * 0.0325 + 2.1) + 5.4 * sin(T * 0.1025 + 0.7) + 2.4 * sin(T * 0.2425 + 2.9));
 }
 static const float SnowBandFrom[7] = {1.5, 6.0, 15.0, 30.0, 55.0, 95.0, 160.0};   // the bands of distance
 static const float SnowBandCell[6] = {0.8, 1.4, 2.4, 4.0, 6.5, 10.0};             // and their cells' side
@@ -415,7 +416,7 @@ float3 Snow(float3 c, float2 uv, int eye, float ok, float3 p)
         [loop] for (float t = SnowBandFrom[b]; t < tEnd; t += cs * 0.6) {
             const float3 P = e + dir * t;
             // the flakes' frame: carried by the wind, gusts reaching places a little apart at different times
-            float3 Q = P - W - float3(0.6 * sin(P.z * 0.031 + T * 0.37), 0.0, 0.6 * sin(P.x * 0.027 + T * 0.29));
+            float3 Q = P - W - float3(1.8 * sin(P.z * 0.031 + T * 0.0925), 0.0, 1.8 * sin(P.x * 0.027 + T * 0.0725));
             const float2 colCell = floor(Q.xz / cs) + float(b) * 57.0;
             const float fall = 3.0 * (0.55 + 0.9 * SnowHash(colCell));   // world units a second, ~0.4-1.0 m
             const float lift = T * fall + SnowHash(colCell + 4.7) * 40.0 * cs;
@@ -426,7 +427,7 @@ float3 Snow(float3 c, float2 uv, int eye, float ok, float3 p)
             if (h > SnowDensity * SnowBandMore[b]) continue;
             // the flake's place in its cell, and its own sway and bob
             const float amp = 0.05 + 0.13 * SnowHash3(key + 13.7);
-            const float freq = 0.5 + 1.4 * SnowHash3(key + 17.9);
+            const float freq = 0.17 + 0.47 * SnowHash3(key + 17.9);   // a flake's own sway, slow too
             const float ph = SnowHash3(key + 21.3) * 6.2831853;
             const float3 at = float3(0.3 + 0.4 * SnowHash3(key + 5.3) + amp * sin(T * freq + ph),
                                      0.3 + 0.4 * SnowHash3(key + 9.1) + 0.06 * sin(T * freq * 0.7 + ph * 1.9),
