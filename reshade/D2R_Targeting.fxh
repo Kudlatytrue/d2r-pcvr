@@ -376,13 +376,13 @@ float3 Sparks(float3 c, float2 uv, int eye, float ok, float3 p)
 }
 // The campfire's snow (vrcam: [campfire] snow, rolled each time the scene begins): flakes falling straight
 // down all round the player. They lie on vertical cylinders round the point between the eyes (one per layer,
-// 1.2 to ~40 world units out), each in a grid of cells on its surface that slides down with the time: the
+// 1.2 to ~104 world units out), each in a grid of cells on its surface that slides down with the time: the
 // same 3D point for both eyes, so the flakes stand in depth; hidden by whatever stands nearer (the depth).
 uniform bool SnowOn < hidden = true; > = false;
 uniform float SnowTime < hidden = true; > = 0.0;
 uniform float SnowDensity < hidden = true; > = 0.35;   // share of the cells that hold a flake
 uniform float SnowSeed < hidden = true; > = 0.0;
-#define SNOW_LAYERS 11
+#define SNOW_LAYERS 18
 float SnowHash(float2 q) { return frac(sin(dot(q, float2(127.1, 311.7)) + SnowSeed * 17.31) * 43758.5453); }
 float3 Snow(float3 c, float2 uv, int eye, float ok, float3 p)
 {
@@ -401,7 +401,7 @@ float3 Snow(float3 c, float2 uv, int eye, float ok, float3 p)
     const float b = dot(o, dx), o2 = dot(o, o);
     float cover = 0.0;
     [loop] for (int k = 0; k < SNOW_LAYERS; ++k) {
-        const float r = 1.2 * pow(1.38, float(k));
+        const float r = 1.2 * pow(1.3, float(k));   // 1.2 .. ~104: over the whole scene to its walls
         const float disc = b * b - a * (o2 - r * r);
         if (disc <= 0.0) continue;
         const float t = (-b + sqrt(disc)) / a;
@@ -417,7 +417,7 @@ float3 Snow(float3 c, float2 uv, int eye, float ok, float3 p)
         float2 at = float2(0.2 + 0.6 * SnowHash(cell + 5.3), 0.2 + 0.6 * SnowHash(cell + 9.1));
         at.x += 0.15 * sin(SnowTime * 0.9 + h * 61.0);   // a slow sway
         const float d = length(frac(g) - at) * cs;
-        const float size = 0.035 + 0.0025 * t;
+        const float size = max(0.035 + 0.002 * t, 0.0035 * t);   // far ones a few pixels still
         const float fadeIn = saturate((t - 0.6) / 1.5);   // the nearest flakes fainter: not a blot over the eye
         cover = max(cover, smoothstep(size, size * 0.35, d) * (0.6 + 0.4 * SnowHash(cell + 2.7)) * fadeIn);
     }
