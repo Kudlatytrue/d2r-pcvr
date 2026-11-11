@@ -376,13 +376,13 @@ float3 Sparks(float3 c, float2 uv, int eye, float ok, float3 p)
 }
 // The campfire's snow (vrcam: [campfire] snow, rolled each time the scene begins): flakes falling straight
 // down all round the player. They lie on vertical cylinders round the point between the eyes (one per layer,
-// 1.2 to ~104 world units out), each in a grid of cells on its surface that slides down with the time: the
+// 2 to 154 world units out, evenly spaced), each in a grid of cells on its surface that slides down with the time: the
 // same 3D point for both eyes, so the flakes stand in depth; hidden by whatever stands nearer (the depth).
 uniform bool SnowOn < hidden = true; > = false;
 uniform float SnowTime < hidden = true; > = 0.0;
 uniform float SnowDensity < hidden = true; > = 0.35;   // share of the cells that hold a flake
 uniform float SnowSeed < hidden = true; > = 0.0;
-#define SNOW_LAYERS 18
+#define SNOW_LAYERS 20
 float SnowHash(float2 q) { return frac(sin(dot(q, float2(127.1, 311.7)) + SnowSeed * 17.31) * 43758.5453); }
 float3 Snow(float3 c, float2 uv, int eye, float ok, float3 p)
 {
@@ -401,7 +401,7 @@ float3 Snow(float3 c, float2 uv, int eye, float ok, float3 p)
     const float b = dot(o, dx), o2 = dot(o, o);
     float cover = 0.0;
     [loop] for (int k = 0; k < SNOW_LAYERS; ++k) {
-        const float r = 1.2 * pow(1.3, float(k));   // 1.2 .. ~104: over the whole scene to its walls
+        const float r = 2.0 + 8.0 * float(k);   // 2 .. 154, evenly: as much snow far off as near, past the walls
         const float disc = b * b - a * (o2 - r * r);
         if (disc <= 0.0) continue;
         const float t = (-b + sqrt(disc)) / a;
