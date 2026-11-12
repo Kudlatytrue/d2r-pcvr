@@ -382,7 +382,13 @@ float3 Sparks(float3 c, float2 uv, int eye, float ok, float3 p)
 // so the flakes are as thick on the screen far and near), and hidden by whatever stands nearer (the depth).
 uniform bool SnowOn < hidden = true; > = false;
 uniform float SnowTime < hidden = true; > = 0.0;
-uniform float SnowDensity < hidden = true; > = 0.35;   // share of the cells that hold a flake
+uniform float SnowDensity < hidden = true; > = 0.25;   // share of the cells that hold a flake
+// The snow beginning or ending as the scene goes on (vrcam: [campfire] snow_turn): seconds since it began to fall
+// or stopped, -1 when neither. Either way it goes from the top: beginning, the first flakes come down from
+// SNOW_TOP over the hero; ending, the last ones fall on and the sky above them is empty.
+uniform float SnowStart < hidden = true; > = -1.0;
+uniform float SnowStop < hidden = true; > = -1.0;
+#define SNOW_TOP 40.0
 uniform float SnowSeed < hidden = true; > = 0.0;
 float SnowHash(float2 q) { return frac(sin(dot(q, float2(127.1, 311.7)) + SnowSeed * 17.31) * 43758.5453); }
 float SnowHash3(float3 q) { return frac(sin(dot(q, float3(127.1, 311.7, 74.7)) + SnowSeed * 17.31) * 43758.5453); }
@@ -434,6 +440,8 @@ float3 Snow(float3 c, float2 uv, int eye, float ok, float3 p)
                                      0.3 + 0.4 * SnowHash3(key + 11.9) + amp * cos(T * freq * 0.83 + ph));
             // back to the world: where the ray passes nearest it
             const float3 F = (cell + at) * cs + (P - Q);
+            if (SnowStart >= 0.0 && F.y < SNOW_TOP - fall * SnowStart) continue;   // not come down this far yet
+            if (SnowStop >= 0.0 && F.y > SNOW_TOP - fall * SnowStop) continue;     // the sky over the last ones
             const float s = dot(F - e, dir);
             if (s <= 0.0 || s > scene) continue;   // behind the eye, or behind something
             const float d = length(F - e - dir * s);

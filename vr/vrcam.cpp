@@ -375,7 +375,8 @@ struct Settings {
     // snow / snow_chance / snow_density: snow falling round the scene (the shader's Snow), rolled each time the
     // scene begins: it snows with this chance; the share of the flakes' cells that hold one
     std::atomic<bool>  campfireSnow{true};
-    std::atomic<float> campfireSnowChance{1.0f}, campfireSnowDensity{0.35f};
+    std::atomic<float> campfireSnowChance{0.3f}, campfireSnowDensity{0.25f};
+    std::atomic<float> campfireSnowTurn{40.0f};   // snow_turn: after this many seconds in the scene the snow begins or ends (0: never)
     std::atomic<bool>  campfirePano{false};      // [campfire] panorama: one picture round the scene (pano_file), in the void
     std::atomic<float> campfirePanoYaw{0.0f}, campfirePanoLow{-90.0f}, campfirePanoHigh{90.0f}, campfirePanoBright{1.0f};   // [campfire] pano_yaw/low/high/brightness
     std::atomic<float> campfireMenuTop{0.78f};  // [campfire] menu_top: where the strip begins, a share of the game's menu band from its top
@@ -1549,8 +1550,9 @@ void LoadSettings() {
         g_set.campfireFireSound.store(IniB(L"campfire", L"fire_sound", true));
         g_set.campfireSparks.store(IniB(L"campfire", L"sparks", true));
         g_set.campfireSnow.store(IniB(L"campfire", L"snow", true));
-        g_set.campfireSnowChance.store(std::clamp(IniF(L"campfire", L"snow_chance", 1.0f), 0.0f, 1.0f));
-        g_set.campfireSnowDensity.store(std::clamp(IniF(L"campfire", L"snow_density", 0.35f), 0.0f, 1.0f));
+        g_set.campfireSnowChance.store(std::clamp(IniF(L"campfire", L"snow_chance", 0.3f), 0.0f, 1.0f));
+        g_set.campfireSnowDensity.store(std::clamp(IniF(L"campfire", L"snow_density", 0.25f), 0.0f, 1.0f));
+        g_set.campfireSnowTurn.store(std::clamp(IniF(L"campfire", L"snow_turn", 40.0f), 0.0f, 3600.0f));
         g_set.campfireFireVolume.store(std::clamp(IniF(L"campfire", L"fire_volume", 0.9f), 0.0f, 4.0f));
         g_set.campfireFireBurst.store(std::clamp(IniF(L"campfire", L"fire_burst_volume", 2.0f), 0.0f, 6.0f));
         g_set.campfireFireX.store(IniF(L"campfire", L"fire_x", 1060.67f));
@@ -12115,20 +12117,29 @@ void OnBeginEffects(reshade::api::effect_runtime* rt, reshade::api::command_list
             SetFloat(rt, "SparkSeed", float(at % 997));
         }
     }
-    {   // The campfire's snow (Snow): rolled as the scene begins ([campfire] snow_chance), falling while it stays.
-        static bool was = false, snowing = false;
-        static ULONGLONG since = 0;
+    {   // The campfire's snow (Snow): rolled as the scene begins ([campfire] snow_chance); after [campfire] snow_turn
+        // seconds in the scene it turns once - begins if it was not falling, ends if it was - from the top either way.
+        static bool was = false, snowing = false, turned = false;
+        static ULONGLONG since = 0, turnAt = 0;
         const bool scene = g_campfire.load();
+        const ULONGLONG nowSnow = GetTickCount64();
         if (scene && !was) {
-            since = GetTickCount64();
+            since = nowSnow; turned = false; turnAt = 0;
             const float roll = float((since * 2654435761ull >> 7) % 10000) / 10000.0f;
             snowing = g_set.campfireSnow.load() && roll < g_set.campfireSnowChance.load();
             LogF("vrcam: campfire - snow %s (roll %.2f, chance %.2f)", snowing ? "falls" : "not this time", roll, g_set.campfireSnowChance.load());
         }
         was = scene;
+        const float turnS = g_set.campfireSnowTurn.load();
+        if (scene && !turned && g_set.campfireSnow.load() && turnS > 0.0f && nowSnow - since > ULONGLONG(turnS * 1000.0f)) {
+            turned = true; turnAt = nowSnow;
+            LogF("vrcam: campfire - after %.0f s the snow %s, from the top", turnS, snowing ? "ends" : "begins");
+        }
+        const float sinceTurn = turned ? float(nowSnow - turnAt) * 0.001f : -1.0f;
+        const bool falling = turned ? (!snowing || sinceTurn < 40.0f) : snowing;   // ending: the last flakes down in ~30 s
         SkyView sv[2];
         AcquireSRWLockShared(&g_skyLock); sv[0] = g_skyView[0]; sv[1] = g_skyView[1]; ReleaseSRWLockShared(&g_skyLock);
-        const bool on = scene && snowing && g_set.campfireSnow.load() && sv[0].proj_ok && sv[0].axes_ok;
+        const bool on = scene && falling && g_set.campfireSnow.load() && sv[0].proj_ok && sv[0].axes_ok;
         SetBool(rt, "SnowOn", on);
         if (on) {
             for (int e = 0; e < 2; ++e) {
@@ -12143,6 +12154,8 @@ void OnBeginEffects(reshade::api::effect_runtime* rt, reshade::api::command_list
             SetFloat(rt, "SnowTime", float((GetTickCount64() - since) % 600000) * 0.001f);
             SetFloat(rt, "SnowDensity", g_set.campfireSnowDensity.load());
             SetFloat(rt, "SnowSeed", float(since % 997));
+            SetFloat(rt, "SnowStart", turned && !snowing ? sinceTurn : -1.0f);
+            SetFloat(rt, "SnowStop", turned && snowing ? sinceTurn : -1.0f);
         }
     }
 #ifdef D2RVR_NATIVE_OPENXR
