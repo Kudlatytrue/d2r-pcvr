@@ -73,6 +73,26 @@ uniform float SkySun < hidden = true; > = 0.5;          // 0 = no sun
 uniform float SkyClouds < hidden = true; > = 0.7;       // cover 0..1
 uniform float SkyStars < hidden = true; > = 0.0;
 uniform float SkyBrightness < hidden = true; > = 1.0;
+uniform float SkySaturation < hidden = true; > = 1.0;   // the painted sky's colour kept (0 = grey; the main menu's, [frontend] sky_saturation)
+// The main menu ([frontend] sky_blend): its painted sky is a card that ends in a dark band, and our sky over
+// the void met it in a hard line (2026-11-13). What is drawn farther than SkyBlendFar and darker than
+// SkyBlendLo..SkyBlendHi (luma), above the horizon, fades into our sky by up to SkyBlendDark.
+uniform float SkyBlendDark < hidden = true; > = 0.0;
+uniform float SkyBlendFar < hidden = true; > = 300.0;
+uniform float SkyBlendLo < hidden = true; > = 0.03;
+uniform float SkyBlendHi < hidden = true; > = 0.22;
+uniform bool SkyEdgeFix < hidden = true; > = false;   // [frontend] sky_edges: edges against the void laid over the sky by how much they cover
+// The main menu ([frontend] cut_right / cut_left): the other acts' scenes stand beside each act's; what lies
+// farther than SkyCutRight to the camera's right (SkyCutDir: right on the ground, x z) or SkyCutLeft to its
+// left is our sky instead, faded in over 25 units.
+uniform bool SkyCutOn < hidden = true; > = false;
+uniform float2 SkyCutDir < hidden = true; > = float2(0.0, 1.0);
+uniform float SkyCutRight < hidden = true; > = 1e9;
+uniform float SkyCutLeft < hidden = true; > = 1e9;
+uniform float SkyCutVoidRight < hidden = true; > = 2.0;   // drawn with no depth this far to the right (dot with the right, 0..1): our sky
+uniform float SkyCutVoidLeft < hidden = true; > = 2.0;
+uniform float SkyCutFarRight < hidden = true; > = 1e9;   // the right cut's far part: this far to the right ...
+uniform float SkyCutFarAhead < hidden = true; > = 1e9;   // ... past this far ahead
 uniform float SkyTex < hidden = true; > = 0.0;        // 0 = drawn here, 1..6 = painted: act 1-5, act 5 snow
 uniform bool SkyCapOn < hidden = true; > = true;       // the painted sky has its zenith picture
 // One panorama round the viewer instead of the band and cap (the campfire, [campfire] panorama):
@@ -82,6 +102,8 @@ uniform bool SkyPano < hidden = true; > = false;
 uniform float SkyPanoYaw < hidden = true; > = 0.0;
 uniform float SkyPanoLow < hidden = true; > = -10.0;
 uniform float SkyPanoHigh < hidden = true; > = 40.0;
+// 0: the campfire's picture (D2R_SKY_PANO); 1: the main menu's act scene's own ([frontend] pano_N, D2R_SKY_PANO2)
+uniform float SkyPanoSlot < hidden = true; > = 0.0;
 uniform float Timer < source = "timer"; >;
 
 // Painted skies (tools/gen_sky.py, or any picture), one pair per act. vrcam sets
@@ -225,6 +247,11 @@ sampler2D SkyCap5Smp { Texture = SkyCap5Tex; AddressU = WRAP; AddressV = WRAP; }
 #endif
 texture2D SkyPanoTex < source = D2R_SKY_PANO; > { Width = 8192; Height = 4096; Format = RGBA8; MipLevels = 14; };
 sampler2D SkyPanoSmp { Texture = SkyPanoTex; AddressU = WRAP; AddressV = CLAMP; };
+#ifndef D2R_SKY_PANO2
+ #define D2R_SKY_PANO2 "D2R_Sky_ours/D2R_Sky_act1.png"
+#endif
+texture2D SkyPano2Tex < source = D2R_SKY_PANO2; > { Width = 4096; Height = 2048; Format = RGBA8; MipLevels = 13; };
+sampler2D SkyPano2Smp { Texture = SkyPano2Tex; AddressU = WRAP; AddressV = CLAMP; };
 texture2D SkyBand6Tex < source = D2R_SKY_SNOW; > { Width = 3072; Height = 1024; Format = RGBA8; };
 sampler2D SkyBand6Smp { Texture = SkyBand6Tex; AddressU = WRAP; AddressV = CLAMP; };
 texture2D SkyCap6Tex < source = D2R_SKYCAP_SNOW; > { Width = 1024; Height = 1024; Format = RGBA8; };
@@ -278,11 +305,16 @@ float3 PanoSky(float3 dir)
     const float pel = degrees(asin(clamp(dir.y, -1.0, 1.0)));
     const float pu = (atan2(dir.x, dir.z) / 6.2831853 + SkyPanoYaw / 360.0) * D2R_PANO_WRAPS;
     const float pv = (SkyPanoHigh - pel) / max(SkyPanoHigh - SkyPanoLow, 1.0);
-    const float3 pc = tex2Dlod(SkyPanoSmp, float4(pu, saturate(pv), 0, 0)).rgb;
+    const bool two = SkyPanoSlot > 0.5;
+    const float4 at = float4(pu, saturate(pv), 0, 0);
+    const float3 pc = two ? tex2Dlod(SkyPano2Smp, at).rgb : tex2Dlod(SkyPanoSmp, at).rgb;
     // over the picture's top: one colour, its top row's average all round (not a per-direction
     // colour, which pinched into a cone overhead)
     float3 top = 0.0;
-    [unroll] for (int k = 0; k < 8; ++k) top += tex2Dlod(SkyPanoSmp, float4((k + 0.5) / 8.0, 0.04, 0, 6)).rgb;
+    [unroll] for (int k = 0; k < 8; ++k) {
+        const float4 tt = float4((k + 0.5) / 8.0, 0.04, 0, 6);
+        top += two ? tex2Dlod(SkyPano2Smp, tt).rgb : tex2Dlod(SkyPanoSmp, tt).rgb;
+    }
     top /= 8.0;
     // near the zenith (or the picture's top, if lower) into that one colour: a picture's pole pinches
     const float edge = min(SkyPanoHigh, 90.0);
@@ -326,7 +358,10 @@ float3 Sky(float3 dir)
 #if D2R_ARCANE_SKY_CACHE
     if (ArcaneSkyOn) return ArcaneSky(dir);
 #endif
-    if (SkyTex > 0.5) return PaintedSky(dir) * SkyBrightness;
+    if (SkyTex > 0.5) {
+        const float3 pc = PaintedSky(dir);
+        return lerp(dot(pc, float3(0.2126, 0.7152, 0.0722)).xxx, pc, SkySaturation) * SkyBrightness;
+    }
     const float h = dir.y;
     float3 c = SkyGradient(h);
     const float cs = saturate(dot(dir, normalize(SunDir)));
